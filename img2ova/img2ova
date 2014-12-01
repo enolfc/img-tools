@@ -1,0 +1,104 @@
+#!/bin/sh -e
+
+# Takes a VM image and creates an OVA
+# Arguments:
+#  -n <name of the ova>
+#  -i <original image file>
+#  -s <size> 
+
+clean_up() {
+    if [ -d "$WORKDIR" ] ; then
+        rm -rf $WORKDIR
+    fi
+}
+
+trap clean_up EXIT 
+
+
+print_usage() {
+    echo "$0 -n <name> -i <image file> -d <os description> [-s <size of disk>]"
+}
+
+
+NAME=""
+IMAGE=""
+SIZE=""
+while [ "x$1" != "x" ] ; do
+    case "$1" in
+        -h)
+            print_usage
+            exit 1
+            ;;
+        -n)
+            shift
+            NAME=$1
+            shift
+            ;;
+        -i)
+            shift
+            IMAGE=$1
+            shift
+            ;;
+        -s)
+            shift
+            SIZE=$1
+            shift
+            ;;
+        -d)
+            shift
+            DESC="$1"
+            shift
+            ;;
+        *)
+            print_usage
+            exit 1
+            ;;
+    esac 
+done
+if [ "x$NAME" = "x" -o "x$IMAGE" = "x" -o "x$DESC" = "x" ] ; then
+    print_usage
+    exit 1
+fi
+
+qemu-img info $IMAGE > /dev/null || (echo "qemu-img did not like the image!?"; exit 1)
+
+WORKDIR=`mktemp -d`
+
+
+
+if [ "x$SIZE" != "x" ] ; then
+    truncate -r $IMAGE $WORKDIR/newdisk
+    truncate -s $SIZE $WORKDIR/newdisk
+    # XXX: may not be sda1!
+    virt-resize --expand /dev/sda1 $IMAGE $WORKDIR/newdisk
+else
+    cp $IMAGE $WORKDIR/newdisk
+fi
+
+# remove all the cloud-init stuff 
+cat > $WORKDIR/script << EOF 
+#!/bin/sh
+
+rm -rf var/lib/cloud
+EOF
+chmod +x $WORKDIR/script
+
+virt-sysprep -a $WORKDIR/newdisk --script $WORKDIR/script
+VBoxManage convertfromraw $WORKDIR/newdisk $WORKDIR/disk1.vmdk \
+    --format VMDK --variant Stream
+
+# dump info for python to consume and create OVF
+qemu-img info --output=json $WORKDIR/disk1.vmdk > $WORKDIR/info.json
+./create-ovf --info $WORKDIR/info.json --desc "$DESC"  > $WORKDIR/$NAME.ovf
+
+# manifest
+echo "SHA1 ($NAME.mf)= `sha1sum $WORKDIR/$NAME.ovf | cut -f1 -d" "`" \
+    > $WORKDIR/$NAME.mf
+echo "SHA1 (disk1.vmdk)= `sha1sum $WORKDIR/disk1.vmdk | cut -f1 -d" "`" \
+    >> $WORKDIR/$NAME.mf
+
+# create OVA
+set -x
+echo $PWD
+tar -cf $NAME.ova -C $WORKDIR $NAME.ovf $NAME.mf disk1.vmdk
+set +x

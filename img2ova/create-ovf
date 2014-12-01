@@ -1,0 +1,179 @@
+#!/usr/bin/env python
+
+import argparse
+import json
+import os
+from xml.dom import minidom
+import xml.etree.ElementTree as ET
+
+
+def envelope():
+    env_attrs = {
+        'ovf:version': '1.0',
+        'xml:lang': 'en-US',
+        'xmlns': 'http://schemas.dmtf.org/ovf/envelope/1',
+        'xmlns:ovf': 'http://schemas.dmtf.org/ovf/envelope/1',
+        'xmlns:rasd': ('http://schemas.dmtf.org/wbem/wscim/1/cim-schema/'
+                    '2/CIM_ResourceAllocationSettingData'),
+        'xmlns:vssd': ('http://schemas.dmtf.org/wbem/wscim/1/cim-schema/'
+                    '2/CIM_VirtualSystemSettingData'),
+        'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+        'xmlns:vbox': 'http://www.virtualbox.org/ovf/machine',
+    }
+    return ET.Element('Envelope', attrib=env_attrs)
+
+
+def refs(image):
+    r = ET.Element('References')
+    ET.SubElement(r, 'File', attrib={'ovf:href': os.path.basename(image),
+                                     'ovf:id': 'file1'})
+    return r
+
+
+def disk(size):
+    disk_sect = ET.Element('DiskSection')
+    ET.SubElement(disk_sect, 'Info').text = ('List of the virtual disks '
+                                             'used in the package')
+    attrib = {'ovf:capacity': '%s' % size,
+              'ovf:diskId': 'vmdisk1',
+              'ovf:fileRef': 'file1',
+              'ovf:format': ('http://www.vmware.com/interfaces/specifications'
+                             '/vmdk.html#streamOptimized'),
+              }
+    ET.SubElement(disk_sect, 'Disk', attrib=attrib)
+    return disk_sect
+
+
+def net():
+    net_sect = ET.Element('NetworkSection')
+    ET.SubElement(net_sect,
+                  'Info').text = 'Logical networks used in the package'
+    ET.SubElement(ET.SubElement(net_sect,
+                                'Network',
+                                attrib={'ovf:name': 'NAT'}),
+                  'Description').text = ('Logical network used by this'
+                                         'appliance.')
+    return net_sect
+
+
+def create_item(desc):
+    item = ET.Element('Item')
+    for k, i in desc.iteritems():
+        ET.SubElement(item, k).text = '%s' % i
+    return item
+
+
+def virt_hw():
+    hw = ET.Element('VirtualHardwareSection')
+    ET.SubElement(hw, 'Info').text = ('Virtual hardware requirements for '
+                                      'a virtual machine')
+
+    system = ET.SubElement(hw, 'System')
+    ET.SubElement(system, 'vssd:ElementName').text = 'Virtual Hardware Family'
+    ET.SubElement(system, 'vssd:Instance').text = '0'
+    ET.SubElement(system, 'vssd:VirtualSystemIdentifier').text = 'centos'
+    ET.SubElement(system, 'vssd:VirtualSystemType').text = 'virtualbox-2.2'
+
+    hw.append(create_item({'rasd:Caption': '1 virtual CPU',
+                           'rasd:Description': 'Number of virtual CPUs',
+                           'rasd:ElementName': '1 virtual CPU',
+                           'rasd:InstanceID': 1,
+                           'rasd:ResourceType': 3,
+                           'rasd:VirtualQuantity': 1}))
+    hw.append(create_item({'rasd:AllocationUnits': 'MegaBytes',
+                           'rasd:Caption': '512 MB of memory',
+                           'rasd:Description': 'Memory Size',
+                           'rasd:ElementName': '512 MB of memory',
+                           'rasd:InstanceID': 2,
+                           'rasd:ResourceType': 4,
+                           'rasd:VirtualQuantity': 512}))
+    hw.append(create_item({'rasd:Address': '0',
+                           'rasd:Caption': 'ideController0',
+                           'rasd:Description': 'IDE controller',
+                           'rasd:ElementName': 'ideController0',
+                           'rasd:InstanceID': 3,
+                           'rasd:ResourceSubType': 'PIIX4',
+                           'rasd:ResourceType': 5}))
+    hw.append(create_item({'rasd:Address': '1',
+                           'rasd:Caption': 'ideController1',
+                           'rasd:Description': 'IDE controller',
+                           'rasd:ElementName': 'ideController1',
+                           'rasd:InstanceID': 4,
+                           'rasd:ResourceSubType': 'PIIX4',
+                           'rasd:ResourceType': 5}))
+    hw.append(create_item({'rasd:Address': '0',
+                           'rasd:Caption': 'sataController1',
+                           'rasd:Description': 'SATA controller',
+                           'rasd:ElementName': 'sataController1',
+                           'rasd:InstanceID': 5,
+                           'rasd:ResourceSubType': 'AHCI',
+                           'rasd:ResourceType': 20}))
+    hw.append(create_item({'rasd:Address': '0',
+                           'rasd:Caption': 'usb',
+                           'rasd:Description': 'USB Controller',
+                           'rasd:ElementName': 'usb',
+                           'rasd:InstanceID': 6,
+                           'rasd:ResourceType': 23}))
+    hw.append(create_item({'rasd:AddressOnParent': '0',
+                           'rasd:Caption': 'disk1',
+                           'rasd:Description': 'Disk Image',
+                           'rasd:ElementName': 'disk1',
+                           'rasd:HostResource': '/disk/vmdisk1',
+                           'rasd:InstanceID': 7,
+                           'rasd:Parent': 5,
+                           'rasd:ResourceType': 17}))
+    hw.append(create_item({'rasd:AddressOnParent': '0',
+                           'rasd:AutomaticAllocation': 'true',
+                           'rasd:Caption': 'cdrom1',
+                           'rasd:Description': 'CD-ROM Drive',
+                           'rasd:ElementName': 'cdrom1',
+                           'rasd:InstanceID': 8,
+                           'rasd:Parent': 4,
+                           'rasd:ResourceType': 15}))
+    hw.append(create_item({'rasd:AutomaticAllocation': 'true',
+                           'rasd:Caption': 'Ethernet adapter on \'NAT\'',
+                           'rasd:Connection': 'NAT',
+                           'rasd:ElementName': 'Ethernet adapter on \'NAT\'',
+                           'rasd:InstanceID': 9,
+                           'rasd:ResourceType': 10}))
+    return hw
+
+
+def virt_sys(desc):
+    vs = ET.Element('VirtualSystem', attrib={'ovf:id': 'VM'})
+    ET.SubElement(vs, 'Info').text = 'A virtual machine'
+    os_sect = ET.SubElement(vs, 'OperatingSystemSection',
+                            attrib={'ovf:id': '80'})
+    ET.SubElement(os_sect,
+                  'Info').text = 'The kind of installed guest operating system'
+    ET.SubElement(os_sect, 'Description').text = desc
+    vs.append(virt_hw())
+    return vs
+
+
+def prettify(elem):
+    reparsed = minidom.parseString(ET.tostring(elem, 'utf-8'))
+    return reparsed.toprettyxml(indent="    ")
+
+
+def main(info, desc):
+    env = envelope()
+    env.append(refs(info.get('filename', '.')))
+    env.append(disk(info.get('virtual-size', 0)))
+    env.append(net())
+    env.append(virt_sys(desc))
+    print prettify(env)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Create an OVF file.')
+    parser.add_argument('--info', metavar='JSONFILE', required=True,
+                        help=('File containing the image info '
+                              '(output of qemu-img info)'))
+    parser.add_argument('--desc', metavar='DESC', required=True,
+                        help='Descirption of OS in the OVF (e.g. RedHat_64)')
+
+    args = parser.parse_args()
+    with open(args.info) as f:
+        info = json.loads(f.read())
+        main(info, args.desc)
