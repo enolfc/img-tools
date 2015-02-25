@@ -64,8 +64,6 @@ qemu-img info $IMAGE > /dev/null || (echo "qemu-img did not like the image!?"; e
 
 WORKDIR=`mktemp -d`
 
-
-
 if [ "x$SIZE" != "x" ] ; then
     truncate -r $IMAGE $WORKDIR/newdisk
     truncate -s $SIZE $WORKDIR/newdisk
@@ -83,22 +81,24 @@ rm -rf var/lib/cloud
 EOF
 chmod +x $WORKDIR/script
 
+DISK_FILE=$NAME-disk1.vmdk
+
 virt-sysprep -a $WORKDIR/newdisk --script $WORKDIR/script
-VBoxManage convertfromraw $WORKDIR/newdisk $WORKDIR/disk1.vmdk \
+VBoxManage convertfromraw $WORKDIR/newdisk $WORKDIR/$DISK_FILE \
     --format VMDK --variant Stream
 
 # dump info for python to consume and create OVF
-qemu-img info --output=json $WORKDIR/disk1.vmdk > $WORKDIR/info.json
+qemu-img info --output=json $WORKDIR/$DISK_FILE > $WORKDIR/info.json
 ./create-ovf --info $WORKDIR/info.json --desc "$DESC"  > $WORKDIR/$NAME.ovf
 
 # manifest
 echo "SHA1 ($NAME.mf)= `sha1sum $WORKDIR/$NAME.ovf | cut -f1 -d" "`" \
     > $WORKDIR/$NAME.mf
-echo "SHA1 (disk1.vmdk)= `sha1sum $WORKDIR/disk1.vmdk | cut -f1 -d" "`" \
+echo "SHA1 ($DISK_FILE)= `sha1sum $WORKDIR/$DISK_FILE | cut -f1 -d" "`" \
     >> $WORKDIR/$NAME.mf
 
 # create OVA
 set -x
 echo $PWD
-tar -cf $NAME.ova -C $WORKDIR $NAME.ovf $NAME.mf disk1.vmdk
+tar -cf $NAME.ova -C $WORKDIR $NAME.ovf $NAME.mf $DISK_FILE
 set +x
